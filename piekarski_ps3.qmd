@@ -186,27 +186,115 @@ rmse_test2 - rmse_train2
 set.seed(51) # for reproducible CV folds
 cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0, nfolds = 10)
 
+cv_ridge$lambda.min
+plot(cv_ridge)
+
 ```
 
-#Q1.3
+#Q4.1 (A)The optimal 𝜆 selected by cross-validation is 0.2461669. (B) This plot shows the projected fit of a given model to a new data set that the model was not trained on. In our case, it shows the expected fit of the model on the test set after being trained on the train set.
 
 ```{r}
-#Q1.3
+#Q4.2
+#compute rmses
+rmse_ridge_cv_pred <- predict(cv_ridge, newx = X_test, s = "lambda.min") 
+rmse_ridge <- sqrt(mean((y_test - rmse_ridge_cv_pred)^2))
+rmse_ridge
 
 ```
 
-#Q1.3
+#Q4.2 The out-of-sample RMSE for Ridge is 0.4587143. The simple OLS (16 vars) has an out-of-sample RMSE of 0.4584523 and the kitchen-sink OLS (\~141 vars) had one of 0.4810753. The new ridge regression RMSE seems to be much closer and very similar in fact to the RMSE from the OLS simple regression. This means the ridge reduces overfitting by shrinking the coefficients. In doing so, they trade some bias for less variance.
 
 ```{r}
-#Q1.3
-
+#Q4.3
+coef(cv_ridge, s = "lambda.min")
 ```
 
-#Q1.3
+#Q4.3 It doesn't seem as though ridge eliminated any variables. The ridge is just shrinking the coefficients it is not bringing any of them directly to zero so that they are removed.
+
+## 5 LASSO Regression: Shrink and Select
 
 ```{r}
-#Q1.3
+#Q5.1
+set.seed(51)
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+
+cv_lasso$lambda.min
+plot(cv_lasso)
+```
+
+#Q5.1 The optimal 𝜆 is 0.007010921.
+
+```{r}
+#Q5.2
+lasso_coefficients <- coef(cv_lasso, s = "lambda.min")
+lasso_coefficients
+
+nonzero_lasso_coeffs <- sum(lasso_coefficients != 0)
+nonzero_lasso_coeffs
+
+all <- length(lasso_coefficients) - 1
+all
+
+survived <- sum(lasso_coefficients[-1] != 0)
+survived
+
+eliminated <- all - survived
+eliminated
+
 
 ```
 
-#Q1.3
+#Q5.2
+
+\(a\) Of the \~141 variables 42 survived (non-zero coeﬀicient) while 168 were eliminated. OR 41 COME BACK TO THIS
+
+(b)a few of the surviving interaction terms are age:female, black:juv_other_count, and felony:priors_ct6-10. These all seem to make substantive sense because age:female would indicate how the impact of age on recidivism would change across genders. Similarly black: juv_other_count would show the effect of juvenile offense counts across races and felony:prios_ct6-10 illustrates the impact of having 6 to 10 priors with whether the current charge is a felony.
+
+\(c\) Baker (2025) argues that LASSO reduces “subjective discretion” in model building. What we see here illustrates this argument because it shows how LASSO automatically selects which variables to keep based on statistical evidence rather than other methodologies that allow the researcher to identify what to keep. This reduces subjective discretion because the choice is done automated by R rather than varying from person to person.
+
+```{r}
+#Q5.3
+#Q4.2
+#compute rmses
+rmse_lasso_pred <- predict(cv_lasso, newx = X_test, s = "lambda.min") 
+rmse_lasso <- sqrt(mean((y_test - rmse_lasso_pred)^2))
+rmse_lasso
+
+```
+
+#Q5.3 The out-of-sample RMSE for LASSO is 0.4571663. The out-of-sample RMSE for Ridge was 0.4587143. The simple OLS (16 vars) has an out-of-sample RMSE of 0.4584523 and the kitchen-sink OLS (\~141 vars) had one of 0.4810753. The new lasso regression RMSE is the smallest of all of these regressions though it is quite close in value to the simple OLS model and the ridge.This means the lasso reduces overfitting by shrinking the coefficients and keeping the most important variables and predictors.
+
+## 6 Model Comparison and Interpretation
+
+```{r}
+#Q6.1
+set.seed(51)
+cv_enet <- cv.glmnet(X_train, y_train, alpha = 0.5, nfolds = 10)
+
+lambda_enet <- cv_enet$lambda.min
+lambda_enet
+
+#compute rmses
+rmse_cv_enet_pred <- predict(cv_enet, newx = X_test, s = "lambda.min") 
+rmse_cv_enet <- sqrt(mean((y_test - rmse_cv_enet_pred)^2))
+rmse_cv_enet
+
+#count variables
+cv_enet_coefficients <- coef(cv_enet, s = "lambda.min")
+survived_cv_enet <- sum(cv_enet_coefficients[-1] != 0)
+survived_cv_enet
+```
+
+#Q6.1 The out of sample RMSE is 0.4571813 and it retains 41 variables.
+
+```{r}
+#Q5.2
+```
+
+#Q5.2
+
+```{r}
+#Q5.2
+```
+
+#Q5.2
