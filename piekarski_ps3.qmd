@@ -1,0 +1,212 @@
+---
+title: "ps3"
+format: html
+editor: visual
+---
+
+# GOV 51 PS 3
+
+Author: Sage Piekarski
+
+March 28th, 2025
+
+## 1 Setup and Data Exploration
+
+```{r}
+#Q1.1
+if (!require(tidyverse)) install.packages("tidyverse");
+library(tidyverse)
+if (!require(glmnet)) install.packages("glmnet");
+library(glmnet)
+if (!require(knitr)) install.packages("knitr");
+library(knitr)
+compas <- read.csv("data/raw/compas_clean.csv")
+```
+
+#Q1.2 There are 7,214 observations and 17 variables in the dataset. The unit of observations are individuals accused of crimes.
+
+```{r}
+#Q1.3
+mean(compas$recidivism)
+```
+
+#Q1.3 The overall recidivism rate in the data is 45.07%. The recidivism outcome is binary as recidivism is either 1 or 0 for whether someone was rearrested within two years or not. This is important when we interpret the predictions from the model, because the LPM creates a line of best fit and can predict values outside of 0 to 1.
+
+```{r}
+#Q1.4
+summ_stat_table <- compas %>% 
+  summarize(across(everything(),
+                   list(mean =  ~mean(.x, na.rm = TRUE),
+                        sd = ~sd(.x, na.rm = TRUE))))
+summ_stat_table
+
+```
+
+#Q1.4 Some of the variables with the most variation are age and priors_count. Some of the variables with the least variation are native_american and asian.
+
+```{r}
+#Q1.5 Create a bar chart showing the recidivism rate by number of prior offenses (priors_count). Group priors_count into categories: 0, 1–2, 3–5, 6–10, and 11+. 
+compas <- compas %>% 
+  mutate(priors_ct = case_when(priors_count == 0 ~ "0",
+                                  priors_count %in% 1:2 ~ "1-2",
+                                  priors_count %in% 3:5 ~ "3-5",
+                                  priors_count %in% 6:10 ~ "6-10",
+                                  priors_count >= 11 ~ "11+"),
+         priors_ct = factor(priors_ct, levels = c("0", "1-2", "3-5", "6-10", "11+")))
+
+recid_rt_priors <- compas %>% 
+  group_by(priors_ct) %>% 
+  summarize(recid_rate = mean(recidivism, na.rm = TRUE))
+
+ggplot(recid_rt_priors, aes(x = priors_ct, y = recid_rate)) +
+  geom_col(fill = "cornflowerblue") +
+  labs(title = "Recidivism Rate by Number of Prior Offenses",
+       x = "Number of Prior Offenses",
+       y = "Recidivism Rate") 
+
+
+```
+
+#Q1.5 Based on this bar chart, it appears as though a higher recidivism rate is associated with a larger number of prior offenses.
+
+## 2 OLS Baseline
+
+#Q2.1
+
+```{r}
+#Q2.1
+set.seed(51)
+n <- nrow(compas)
+train_idx <- sample(1:n, size = floor(0.8 * n))
+train <- compas[train_idx, ]
+test <- compas[-train_idx, ]
+
+```
+
+#Q2.1 The Test set has 1,443 observations and the Train set has 5,771 observations.
+
+```{r}
+#Q2.2
+mod1 <- lm(recidivism ~ ., data = train)
+summary(mod1)
+
+```
+
+#Q2.2 At the 5% level, the predictors that are statistically significant are age, female, priors_count, felony, age_25_45, priors_ct1-2, priors_ct3-5, priors_ct6-10, priors_ct11+. ASK ON THIS QUESTION BECAUSE IT SAYS ONLY 16 PREDICTORS.
+
+```{r}
+#Q2.3
+rmse <- function(actual, predicted) {sqrt(mean((predicted - actual)^2))}
+
+rmse_train_pred <- predict(mod1, newdata = train) 
+rmse_train <- rmse(train$recidivism, rmse_train_pred)
+rmse_train
+
+rmse_test_pred <- predict(mod1, newdata = test) 
+rmse_test <- rmse(test$recidivism, rmse_test_pred)
+rmse_test
+
+rmse_test - rmse_train 
+
+```
+
+#Q2.3 The in-sample RMSE (predictions on the training data) is 0.4566951. The out-of-sample RMSE (predictions on the test data) is 0.4584523. The gap between in-sample and out-of-sample RMSE is 0.001757204. With 16 predictors, the OLS is likely not overfitting. I believe this because the gap between the two sets is very small indicating that the two RMSE's are very similar to each other. Thus, it doesn't appear as though the model is overfitting.
+
+```{r}
+#Q2.4
+set.seed(51)
+folds <- sample(rep(1:5, length.out = nrow(train)))
+rmse_cv <- numeric(5)
+for (k in 1:5) {
+train_k <- train[folds != k, ]
+test_k <- train[folds == k, ]
+model_k <- lm(recidivism ~
+., data = train_k)
+pred_k <- predict(model_k, newdata = test_k)
+rmse_cv[k] <- sqrt(mean((test_k$recidivism - pred_k)^2))
+}
+mean(rmse_cv)
+
+```
+
+#Q2.4 (A) The 5-fold CV estimate of RMSE is 0.4584038. This appears to be the exact same as the out-of-sample RMSE (predictions on the test data) which was 0.4584523. (B) In my own words, cross-validation is more reliable than a single train/test split because cross-validation is more immune to errors due to within group variation. As such, a single train/test split is reliant on which observations are in which group, but cross-validation uses multiple splits so it gives a more reliable output value. (C) Finally, when we use cv.glmnet() later, it does this same process internally to choose the penalty parameter 𝜆. Cross-validation is the right tool for choosing 𝜆, because it I DONTR KNOW FIGURE THIS OUT
+
+## 3 The Kitchen Sink: What Happens When You Add Too Many Predictors?
+
+```{r}
+#Q3.1
+# Full interaction formula
+f_full <- recidivism ~ (.)^2 +
+I(age^2) + I(priors_count^2) +
+I(juv_fel_count^2) + I(juv_misd_count^2) +
+I(juv_other_count^2)
+# Create design matrices for glmnet (we'll need these later)
+X_train <- model.matrix(f_full, data = train)[, -1]
+X_test <- model.matrix(f_full, data = test)[, -1]
+y_train <- train$recidivism
+y_test <- test$recidivism
+# How many features now?
+ncol(X_train)
+
+5771/209
+
+```
+
+#Q1.3 The expanded model has 209 predictors. The ratio of training observations to predictors is 27.61244.
+
+```{r}
+#Q1.3
+#fit the model
+ols_full <- lm(f_full, data = train)
+summary(ols_full)
+
+#compute rmses
+rmse_train_pred2 <- predict(ols_full, newdata = train) 
+rmse_train2 <- rmse(train$recidivism, rmse_train_pred2)
+rmse_train2
+
+rmse_test_pred2 <- predict(ols_full, newdata = test) 
+rmse_test2 <- rmse(test$recidivism, rmse_test_pred2)
+rmse_test2
+
+rmse_test2 - rmse_train2 
+
+
+
+```
+
+#Q3.2 (A) The in-sample RMSE for this model is 0.4454574. (B) The out-of-sample RMSE is 0.4810753. (C) The in-sample/out-of-sample gap is 0.0356179. Compare to the simple 19-predictor OLS, this gap is quite a bit larger than the original gap of 0.001757204. This indicates that likely the new OLS model is overfitting because the gap is so much larger. We get a larger gap when the model overfits because when more predictors are added they bring in more noise to the equation.
+
+#Q3.3 Adding 180 interaction terms made the model’s in-sample fit better but its out-of-sample predictions worse because adding all of these new terms allows the model to fit the training data better. However, when you try to apply this to new data sets like in the test set, there are so many new predictors with more noise which makes the predictions on new data worse. This is called overfitting!
+
+## 4 Ridge Regression: Shrink Everything
+
+```{r}
+#Q4.1
+set.seed(51) # for reproducible CV folds
+cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0, nfolds = 10)
+
+```
+
+#Q1.3
+
+```{r}
+#Q1.3
+
+```
+
+#Q1.3
+
+```{r}
+#Q1.3
+
+```
+
+#Q1.3
+
+```{r}
+#Q1.3
+
+```
+
+#Q1.3
